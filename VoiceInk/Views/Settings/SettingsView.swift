@@ -97,13 +97,28 @@ struct SettingsView: View {
                                 }
                             
                                 VStack(alignment: .leading, spacing: 12) {
-                                    Text("Choose Push-to-Talk Key")
+                                    Text("Choose Push-to-Talk Keys (Select one or more)")
                                         .font(.system(size: 13, weight: .medium))
                                         .foregroundColor(.secondary)
-                                    
-                                    PushToTalkKeySelector(selectedKey: $hotkeyManager.pushToTalkKey)
-                                        .padding(.vertical, 4)
-                                    
+
+                                    // Multi-key selector using a horizontal stack
+                                    HStack(spacing: 12) {
+                                        ForEach(HotkeyManager.PushToTalkKey.allCases, id: \.self) { key in
+                                            let isSelected = hotkeyManager.pushToTalkKeysRawValues.contains(key.rawValue)
+                                            Button(action: {
+                                                togglePushToTalkKey(key)
+                                            }) {
+                                                SelectableKeyCapView(
+                                                    text: getKeySymbol(for: key),
+                                                    subtext: getKeyText(for: key),
+                                                    isSelected: isSelected
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+
                                     VideoCTAView(
                                         url: "https://dub.sh/shortcut",
                                         subtitle: "Pro tip for Push-to-Talk setup"
@@ -254,22 +269,43 @@ struct SettingsView: View {
         }
     }
     
-    private func getPushToTalkDescription() -> String {
-        switch hotkeyManager.pushToTalkKey {
-        case .rightOption:
-            return "Using Right Option (⌥) key to quickly start recording. Release to stop."
-        case .leftOption:
-            return "Using Left Option (⌥) key to quickly start recording. Release to stop."
-        case .leftControl:
-            return "Using Left Control (⌃) key to quickly start recording. Release to stop."
-        case .fn:
-            return "Using Function (Fn) key to quickly start recording. Release to stop."
-        case .rightCommand:
-            return "Using Right Command (⌘) key to quickly start recording. Release to stop."
-        case .rightShift:
-            return "Using Right Shift (⇧) key to quickly start recording. Release to stop."
+    // Helper function to toggle PTT keys in the HotkeyManager set
+    private func togglePushToTalkKey(_ key: HotkeyManager.PushToTalkKey) {
+        let rawValue = key.rawValue
+        if hotkeyManager.pushToTalkKeysRawValues.contains(rawValue) {
+            // Prevent removing the last key if only one is selected
+            if hotkeyManager.pushToTalkKeysRawValues.count > 1 {
+                hotkeyManager.pushToTalkKeysRawValues.remove(rawValue)
+            }
+        } else {
+            hotkeyManager.pushToTalkKeysRawValues.insert(rawValue)
         }
     }
+    
+    // Helper function to get display symbol for PTT key
+    private func getKeySymbol(for key: HotkeyManager.PushToTalkKey) -> String {
+        switch key {
+        case .rightOption: return "⌥"
+        case .leftOption: return "⌥"
+        case .leftControl: return "⌃"
+        case .fn: return "Fn"
+        case .rightCommand: return "⌘"
+        case .rightShift: return "⇧"
+        }
+    }
+    
+    // Helper function to get display text for PTT key
+    private func getKeyText(for key: HotkeyManager.PushToTalkKey) -> String {
+        switch key {
+        case .rightOption: return "Right Option"
+        case .leftOption: return "Left Option"
+        case .leftControl: return "Left Control"
+        case .fn: return "Function"
+        case .rightCommand: return "Right Command"
+        case .rightShift: return "Right Shift"
+        }
+    }
+    
 }
 
 struct SettingsSection<Content: View>: View {

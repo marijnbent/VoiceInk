@@ -174,52 +174,126 @@ class HotkeyManager: ObservableObject {
     }
     
     private func handleKeyEvent(_ event: CGEvent) async {
+        guard isPushToTalkEnabled else { return }
+
         let flags = event.flags
-        let keycode = event.getIntegerValueField(.keyboardEventKeycode)
-        
-        let isKeyPressed = flags.contains(pushToTalkKey.flags)
-        let isTargetKey = pushToTalkKey == .fn ? true : keycode == pushToTalkKey.keyCode
-        
-        guard isTargetKey else { return }
-        guard isKeyPressed != currentKeyState else { return }
-        
-        currentKeyState = isKeyPressed
-        
-        // Key is pressed down
-        if isKeyPressed {
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let targetKeys = pushToTalkKeys
+
+        // Find which PTT key this event corresponds to (if any)
+        guard let eventKeyInfo = targetKeys.first(where: { $0.keyCode == keyCode }) else {
+            // This event might be for a modifier key not explicitly listed but part of a combo,
+            // or an unrelated key. We only care if it's one of *our* PTT keys changing state.
+            return
+        }
+
+        // Determine if the key went down or up based on its specific flag
+        let isKeyDown = flags.contains(eventKeyInfo.flags)
+        let previousKeyState = activePttKeyCode == keyCode // Was this key the one we were tracking?
+
+        // --- Key Down Logic ---
+        if isKeyDown {
+            // If this key is already down (repeat event) or another PTT key is active, ignore.
+            guard activePttKeyCode == nil else {
+                 print("🖱️ KeyDown ignored: Another PTT key [\(activePttKeyCode ?? 999)] is active.")
+                 return
+            }
+
+            // --- Start New PTT Action ---
+            activePttKeyCode = keyCode
             keyPressStartTime = Date()
-            
-            // If we're in hands-free mode, stop recording
-            if isHandsFreeMode {
-                isHandsFreeMode = false
-                await whisperState.handleToggleMiniRecorder()
-                return
-            }
-            
-            // Show recorder if not already visible
-            if !whisperState.isMiniRecorderVisible {
-                await whisperState.handleToggleMiniRecorder()
-            }
-        } 
-        // Key is released
-        else {
-            let now = Date()
-            
-            // Calculate press duration
-            if let startTime = keyPressStartTime {
-                let pressDuration = now.timeIntervalSince(startTime)
-                
-                if pressDuration < briefPressThreshold {
-                    // For brief presses, enter hands-free mode
+            didStartRecordingOnPress = false // Reset flag for this new press
+
+            // Invalidate any pending double-click timer
+            doubleClickTimer?.invalidate()
+            doubleClickTimer = nil
+
+            // If not already recording (from hands-free or a previous incomplete action)
+            if !whisperState.isRecording {
+                // Check for double-click: was the *same key* released recently?
+                if let lastRelease = lastReleaseTime,
+                   lastReleasedPttKeyCode == keyCode, // Must be the same key
+                   Date().timeIntervalSince(lastRelease) < doubleClickInterval {
+                    // --- Double Click Detected ---
                     isHandsFreeMode = true
-                    // Continue recording - do nothing on release
+                    lastReleaseTime = nil // Consume the release time
+                    lastReleasedPttKeyCode = nil
+                    print("🖱️ Double Click Detected (\(eventKeyInfo.displayName)) - Entering Hands-Free")
+                    await whisperState.toggleRecord() // Start recording
+                    didStartRecordingOnPress = true
                 } else {
-                    // For longer presses, stop and transcribe
-                    await whisperState.handleToggleMiniRecorder()
+                    // --- Start Hold Recording ---
+                    print("🖱️ PTT Hold Started (\(eventKeyInfo.displayName))")
+                    await whisperState.toggleRecord() // Start recording for hold
+                    didStartRecordingOnPress = true
                 }
+            } else if isHandsFreeMode {
+                // --- Click while in Hands-Free Mode ---
+                // This press intends to stop hands-free on release.
+                print("🖱️ Click while Hands-Free (\(eventKeyInfo.displayName)) (will stop on release)")
+                // State is set (activePttKeyCode, keyPressStartTime), action happens on Key Up.
             }
-            
+            // Else: Recording is already active (likely hold from another key), ignore this new press.
+
+        }
+        // --- Key Up Logic ---
+        else {
+            // Key released. Only process if this is the key we were tracking.
+            guard activePttKeyCode == keyCode else {
+                 print("🖱️ KeyUp ignored: Key [\(keyCode)] was not the active PTT key [\(activePttKeyCode ?? 999)].")
+                 return // This release doesn't correspond to the key that initiated the action
+            }
+
+            let releaseTime = Date()
+            lastReleaseTime = releaseTime
+            lastReleasedPttKeyCode = keyCode // Record which key was just released
+
+            if let startTime = keyPressStartTime {
+                let pressDuration = releaseTime.timeIntervalSince(startTime)
+
+                if isHandsFreeMode {
+                    // --- Stop Hands-Free Recording ---
+                    // This release corresponds to the click *after* entering hands-free mode.
+                    print("🖱️ Stopping Hands-Free Recording (\(eventKeyInfo.displayName))")
+                    if whisperState.isRecording {
+                        await whisperState.toggleRecord() // Stop recording
+                    }
+                    isHandsFreeMode = false // Exit hands-free mode
+                } else if didStartRecordingOnPress {
+                    // This key release corresponds to a press that *started* a recording (hold or brief click)
+                    if pressDuration < briefPressThreshold {
+                        // --- Brief Click Action ---
+                        print("🖱️ Brief Click Detected (\(eventKeyInfo.displayName)) - Canceling")
+                        await whisperState.cancelRecording() // Cancel recording and dismiss UI
+
+                        // Start double-click timer for *this specific key*
+                        doubleClickTimer = Timer.scheduledTimer(withTimeInterval: doubleClickInterval, repeats: false) { _ in
+                             Task { @MainActor in
+                                 // If the timer fires, it means no second click happened for this key
+                                 if self.lastReleasedPttKeyCode == keyCode {
+                                     self.lastReleasedPttKeyCode = nil // Reset so next click isn't a double-click
+                                 }
+                                 self.doubleClickTimer = nil
+                                 print("🖱️ Double-click window expired for key \(keyCode)")
+                             }
+                        }
+                    } else {
+                        // --- Hold Release Action ---
+                        print("🖱️ PTT Hold Released (\(eventKeyInfo.displayName)) - Stopping")
+                        if whisperState.isRecording {
+                            await whisperState.toggleRecord() // Stop recording and process
+                        }
+                    }
+                }
+                // Else: didStartRecordingOnPress was false, meaning this key up doesn't correspond
+                // to a press that should trigger a stop/cancel (e.g., key released after app lost focus).
+                // Simply reset state.
+            }
+
+            // Reset state for the next press sequence *for any key*
+            activePttKeyCode = nil
             keyPressStartTime = nil
+            didStartRecordingOnPress = false
         }
     }
     
@@ -323,12 +397,19 @@ class HotkeyManager: ObservableObject {
     }
     
     
+    // Keep the original shortcut handler separate
     private func setupShortcutHandler() {
-        KeyboardShortcuts.onKeyUp(for: .toggleMiniRecorder) { [weak self] in
-            Task { @MainActor in
-                await self?.handleShortcutTriggered()
-            }
-        }
+         KeyboardShortcuts.onKeyUp(for: .toggleMiniRecorder) { [weak self] in
+             Task { @MainActor in
+                 // Prevent standard shortcut if PTT is active and recorder is visible
+                 guard let self = self else { return }
+                 if self.isPushToTalkEnabled && self.whisperState.isMiniRecorderVisible {
+                     print("⌨️ Standard shortcut ignored while PTT active and recorder visible.")
+                     return
+                 }
+                 await self.handleShortcutTriggered()
+             }
+         }
     }
     
     private func handleShortcutTriggered() async {
@@ -341,9 +422,13 @@ class HotkeyManager: ObservableObject {
         // Update last trigger time
         lastShortcutTriggerTime = Date()
         
-        // Handle the shortcut
-        await whisperState.handleToggleMiniRecorder()
+        // Handle the standard shortcut (not PTT)
+        // This should likely toggle the recorder visibility *without* starting/stopping recording
+        // if PTT is the primary mechanism. Or maybe it should still toggle recording?
+        // Let's keep the original toggle behavior for the standard shortcut for now.
+        await whisperState.toggleMiniRecorder() // Use the UI toggle method directly
     }
+
     
     deinit {
         visibilityTask?.cancel()
