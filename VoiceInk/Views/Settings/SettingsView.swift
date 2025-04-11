@@ -81,7 +81,7 @@ struct SettingsView: View {
                                             .font(.system(size: 13, weight: .medium))
                                             .foregroundColor(.secondary)
                                         
-                                        PushToTalkKeySelector(selectedKey: $hotkeyManager.pushToTalkKey)
+                                        PushToTalkKeySelector(selectedKeys: $hotkeyManager.pushToTalkKeys) // Use the Set binding
                                             .padding(.vertical, 4)
                                         
                                     
@@ -310,20 +310,28 @@ extension Text {
 }
 
 struct PushToTalkKeySelector: View {
-    @Binding var selectedKey: HotkeyManager.PushToTalkKey
+    @Binding var selectedKeys: Set<HotkeyManager.PushToTalkKey> // Changed to Set
     
     var body: some View {
         HStack(spacing: 12) {
             ForEach(HotkeyManager.PushToTalkKey.allCases, id: \.self) { key in
                 Button(action: {
                     withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
-                        selectedKey = key
+                        // Toggle membership in the Set
+                        if selectedKeys.contains(key) {
+                            // Prevent removing the last key
+                            if selectedKeys.count > 1 {
+                                selectedKeys.remove(key)
+                            }
+                        } else {
+                            selectedKeys.insert(key)
+                        }
                     }
                 }) {
                     SelectableKeyCapView(
                         text: getKeySymbol(for: key),
                         subtext: getKeyText(for: key),
-                        isSelected: selectedKey == key
+                        isSelected: selectedKeys.contains(key) // Check if key is in the Set
                     )
                 }
                 .buttonStyle(.plain)

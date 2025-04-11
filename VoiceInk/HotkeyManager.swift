@@ -36,27 +36,37 @@ class HotkeyManager: ObservableObject {
             setupKeyMonitors()
         }
     }
-    @Published var pushToTalkKey: PushToTalkKey {
+    @Published var pushToTalkKeys: Set<PushToTalkKey> {
         didSet {
-            UserDefaults.standard.set(pushToTalkKey.rawValue, forKey: "pushToTalkKey")
-            isRightOptionKeyPressed = false
-            isFnKeyPressed = false
-            isRightCommandKeyPressed = false
-            isRightShiftKeyPressed = false
+            // Save the set of raw values
+            let rawValues = pushToTalkKeys.map { $0.rawValue }
+            UserDefaults.standard.set(rawValues, forKey: "pushToTalkKeys")
+            // Reset state when keys change
+            pressedKeys.keys.forEach { pressedKeys[$0] = false }
             keyPressStartTime = nil
+            isWaitingForDoubleClick = false
+            isToggleRecordingActive = false
+            lastKeyPressTime = nil
         }
     }
     
     private var whisperState: WhisperState
-    private var isRightOptionKeyPressed = false
-    private var isFnKeyPressed = false
-    private var isRightCommandKeyPressed = false
-    private var isRightShiftKeyPressed = false
+    // Dictionary to track the state of individual keys
+    private var pressedKeys: [PushToTalkKey: Bool] = [
+        .rightOption: false,
+        .fn: false,
+        .rightCommand: false,
+        .rightShift: false
+    ]
     private var localKeyMonitor: Any?
     private var globalKeyMonitor: Any?
     private var visibilityTask: Task<Void, Never>?
-    private var keyPressStartTime: Date?
-    private let shortPressDuration: TimeInterval = 0.5 // 300ms threshold
+    private var keyPressStartTime: Date? // Tracks when the PTT combination was first pressed
+    private let shortPressDuration: TimeInterval = 0.3 // Threshold for short press (dismiss) vs long press (hold)
+    private var lastKeyPressTime: Date? // Tracks the time of the last key press for double-click detection
+    private let doubleClickInterval: TimeInterval = 0.4 // Max time between presses for a double-click
+    private var isWaitingForDoubleClick = false // Flag to indicate if we're potentially in a double-click sequence
+    private var isToggleRecordingActive = false // Flag for double-click toggle recording mode
     
     // Add cooldown management
     private var lastShortcutTriggerTime: Date?
@@ -79,8 +89,20 @@ class HotkeyManager: ObservableObject {
     }
     
     init(whisperState: WhisperState) {
+        // Load push-to-talk enabled state
         self.isPushToTalkEnabled = UserDefaults.standard.bool(forKey: "isPushToTalkEnabled")
-        self.pushToTalkKey = PushToTalkKey(rawValue: UserDefaults.standard.string(forKey: "pushToTalkKey") ?? "") ?? .rightCommand
+        // Load push-to-talk keys (Set of Strings)
+        if let savedKeys = UserDefaults.standard.array(forKey: "pushToTalkKeys") as? [String] {
+            self.pushToTalkKeys = Set(savedKeys.compactMap { PushToTalkKey(rawValue: $0) })
+        } else {
+            // Default to Right Command if nothing is saved
+            self.pushToTalkKeys = [.rightCommand]
+        }
+        // Ensure default is set if the loaded set is empty (e.g., first launch or corrupted data)
+        if self.pushToTalkKeys.isEmpty {
+             self.pushToTalkKeys = [.rightCommand]
+             UserDefaults.standard.set([PushToTalkKey.rightCommand.rawValue], forKey: "pushToTalkKeys")
+        }
         self.whisperState = whisperState
         
         updateShortcutStatus()
@@ -270,55 +292,105 @@ class HotkeyManager: ObservableObject {
         }
     }
     
-    private func handlePushToTalkKey(_ event: NSEvent) async {
-        // Only handle push-to-talk if enabled and configured
-        guard isPushToTalkEnabled && isShortcutConfigured else { return }
-        
-        let keyState: Bool
-        switch pushToTalkKey {
-        case .rightOption:
-            keyState = event.modifierFlags.contains(.option) && event.keyCode == 0x3D
-            guard keyState != isRightOptionKeyPressed else { return }
-            isRightOptionKeyPressed = keyState
-            
-        case .fn:
-            keyState = event.modifierFlags.contains(.function)
-            guard keyState != isFnKeyPressed else { return }
-            isFnKeyPressed = keyState
-            
-        case .rightCommand:
-            keyState = event.modifierFlags.contains(.command) && event.keyCode == 0x36
-            guard keyState != isRightCommandKeyPressed else { return }
-            isRightCommandKeyPressed = keyState
-            
-        case .rightShift:
-            keyState = event.modifierFlags.contains(.shift) && event.keyCode == 0x3C
-            guard keyState != isRightShiftKeyPressed else { return }
-            isRightShiftKeyPressed = keyState
-        }
-        
-        if keyState {
-            // Key pressed down - start recording and store timestamp
-            if !whisperState.isMiniRecorderVisible {
-                keyPressStartTime = Date()
-                await whisperState.handleToggleMiniRecorder()
-            }
-        } else {
-            // Key released
-            if whisperState.isMiniRecorderVisible {
-                // Check if the key was pressed for less than the threshold
-                if let startTime = keyPressStartTime,
-                   Date().timeIntervalSince(startTime) < shortPressDuration {
-                    // Short press - don't stop recording
-                    keyPressStartTime = nil
-                    return
-                }
-                // Long press - stop recording
-                await whisperState.handleToggleMiniRecorder()
-            }
-            keyPressStartTime = nil
-        }
-    }
+     private func handlePushToTalkKey(_ event: NSEvent) async {
+         // Only handle push-to-talk if enabled
+         guard isPushToTalkEnabled else { return }
+         
+         // Update the state of the key that triggered the event
+         var keyChanged: PushToTalkKey? = nil
+         if event.modifierFlags.contains(.option) && event.keyCode == 0x3D {
+             pressedKeys[.rightOption] = event.modifierFlags.contains(.option)
+             if pressedKeys[.rightOption] != (event.modifierFlags.contains(.option)) { keyChanged = .rightOption }
+             pressedKeys[.rightOption] = event.modifierFlags.contains(.option)
+         } else if event.modifierFlags.contains(.function) {
+             // Note: Detecting Fn key release might be unreliable with flagsChanged.
+             // Consider alternative monitoring if Fn key release detection is critical.
+             let fnPressed = event.modifierFlags.contains(.function)
+             if pressedKeys[.fn] != fnPressed { keyChanged = .fn }
+             pressedKeys[.fn] = fnPressed
+         } else if event.modifierFlags.contains(.command) && event.keyCode == 0x36 {
+             if pressedKeys[.rightCommand] != (event.modifierFlags.contains(.command)) { keyChanged = .rightCommand }
+             pressedKeys[.rightCommand] = event.modifierFlags.contains(.command)
+         } else if event.modifierFlags.contains(.shift) && event.keyCode == 0x3C {
+             if pressedKeys[.rightShift] != (event.modifierFlags.contains(.shift)) { keyChanged = .rightShift }
+             pressedKeys[.rightShift] = event.modifierFlags.contains(.shift)
+         } else {
+             // If the event doesn't match any monitored key, reset potentially stuck states on key up
+             if event.type == .flagsChanged {
+                 // Check if any monitored modifier key was released
+                 if !event.modifierFlags.contains(.option) { pressedKeys[.rightOption] = false }
+                 if !event.modifierFlags.contains(.function) { pressedKeys[.fn] = false }
+                 if !event.modifierFlags.contains(.command) { pressedKeys[.rightCommand] = false }
+                 if !event.modifierFlags.contains(.shift) { pressedKeys[.rightShift] = false }
+             }
+         }
+
+         // Check if all required push-to-talk keys are currently pressed
+         let allKeysPressed = pushToTalkKeys.allSatisfy { pressedKeys[$0] == true }
+         let anyKeyPressed = pushToTalkKeys.contains { pressedKeys[$0] == true } // Check if at least one PTT key is still pressed
+
+         let now = Date()
+
+         if allKeysPressed {
+             // --- All required keys are pressed down ---
+             if keyPressStartTime == nil { // First time all keys are pressed together
+                 keyPressStartTime = now
+
+                 // Double-click detection
+                 if let lastPress = lastKeyPressTime, now.timeIntervalSince(lastPress) < doubleClickInterval {
+                     // Double click detected!
+                     isToggleRecordingActive.toggle() // Toggle the recording state
+                     if isToggleRecordingActive {
+                         // Start recording if not already recording
+                         if !whisperState.isMiniRecorderVisible {
+                             await whisperState.handleToggleMiniRecorder()
+                         }
+                     } else {
+                         // Stop recording if currently in toggle mode
+                         if whisperState.isMiniRecorderVisible {
+                             await whisperState.handleToggleMiniRecorder()
+                         }
+                     }
+                     isWaitingForDoubleClick = false // Reset double-click wait
+                     lastKeyPressTime = nil // Prevent triple-click actions
+                     keyPressStartTime = nil // Reset start time to avoid hold action
+                 } else {
+                     // Single press - start waiting for potential double click
+                     isWaitingForDoubleClick = true
+                     lastKeyPressTime = now
+                     // Start recording immediately for hold functionality, unless toggle is active
+                     if !isToggleRecordingActive && !whisperState.isMiniRecorderVisible {
+                         await whisperState.handleToggleMiniRecorder()
+                     }
+                 }
+             }
+         } else if !anyKeyPressed {
+             // --- All required keys have been released ---
+             if let startTime = keyPressStartTime {
+                 let pressDuration = now.timeIntervalSince(startTime)
+
+                 if isToggleRecordingActive {
+                     // In toggle mode, key release does nothing to the recording state
+                 } else if pressDuration < shortPressDuration {
+                     // Short press (Click) - Dismiss if visible
+                     if whisperState.isMiniRecorderVisible {
+                         await whisperState.dismissMiniRecorder()
+                     }
+                 } else {
+                     // Long press (Hold) - Stop recording if it was started by hold
+                     if whisperState.isMiniRecorderVisible && !isToggleRecordingActive {
+                          await whisperState.handleToggleMiniRecorder()
+                     }
+                 }
+             }
+             // Reset state variables now that keys are released
+             keyPressStartTime = nil
+             isWaitingForDoubleClick = false // Reset double-click wait on release
+             // Don't reset lastKeyPressTime here, needed for next press detection
+             // Don't reset isToggleRecordingActive on release, only on next press or explicit stop
+         }
+         // Else: Some keys pressed, some released - intermediate state, do nothing until all are pressed or all are released.
+     }
     
     deinit {
         visibilityTask?.cancel()
