@@ -93,12 +93,7 @@ class LicenseViewModel: ObservableObject {
     }
     
     var canUseApp: Bool {
-        switch licenseState {
-        case .licensed, .trial:
-            return true
-        case .trialExpired:
-            return false
-        }
+        return true
     }
     
     func openPurchaseLink() {
