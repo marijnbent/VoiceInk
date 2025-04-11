@@ -387,12 +387,17 @@ class HotkeyManager: ObservableObject {
     }
     
     func updateShortcutStatus() {
+        // Update status for the standard shortcut
         isShortcutConfigured = KeyboardShortcuts.getShortcut(for: .toggleMiniRecorder) != nil
         if isShortcutConfigured {
-            setupShortcutHandler()
-            setupKeyMonitor()
+            setupShortcutHandler() // Setup handler for the standard shortcut if it exists
+        }
+        
+        // Setup or remove PTT monitor based *only* on the PTT enabled flag and permissions
+        if isPushToTalkEnabled && AXIsProcessTrusted() {
+             setupKeyMonitor()
         } else {
-            removeKeyMonitor()
+             removeKeyMonitor()
         }
     }
     

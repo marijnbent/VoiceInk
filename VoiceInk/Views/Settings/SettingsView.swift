@@ -27,11 +27,7 @@ struct SettingsView: View {
                     showWarning: currentShortcut == nil
                 ) {
                     VStack(alignment: .leading, spacing: 8) {
-                        if currentShortcut == nil {
-                            Text("⚠️ Please set a keyboard shortcut to use VoiceInk")
-                                .foregroundColor(.orange)
-                                .font(.subheadline)
-                        }
+                        // Removed the warning for missing standard shortcut
                         
                         HStack(alignment: .center, spacing: 16) {
                             if let shortcut = currentShortcut {
@@ -85,16 +81,7 @@ struct SettingsView: View {
                                     .padding(.bottom, 4)
                                 }
                                 
-                                if currentShortcut == nil {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "exclamationmark.triangle.fill")
-                                            .foregroundColor(.orange)
-                                        Text("Please set a keyboard shortcut first to use Push-to-Talk")
-                                            .settingsDescription()
-                                            .foregroundColor(.orange)
-                                    }
-                                    .padding(.vertical, 4)
-                                }
+                                // Removed the warning about needing a standard shortcut for PTT
                             
                                 VStack(alignment: .leading, spacing: 12) {
                                     Text("Choose Push-to-Talk Keys (Select one or more)")

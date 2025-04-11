@@ -58,7 +58,7 @@ struct OnboardingPermissionsView: View {
         ),
         OnboardingPermission(
             title: "Keyboard Shortcut",
-            description: "Set up a keyboard shortcut to quickly access VoiceInk from anywhere.",
+            description: "Set a global shortcut (optional if using Push-to-Talk).",
             icon: "keyboard",
             type: .keyboardShortcut
         )
@@ -143,9 +143,7 @@ struct OnboardingPermissionsView: View {
                                         }
                                         .controlSize(.large)
                                         
-                                        SkipButton(text: "Skip for now") {
-                                            moveToNext()
-                                        }
+                                        // Removed SkipButton for shortcut step, "Continue" serves this purpose now.
                                     }
                                 }
                                 .scaleEffect(scale)
@@ -268,8 +266,9 @@ struct OnboardingPermissionsView: View {
             }
             
         case .keyboardShortcut:
-            // The keyboard shortcut is handled by the KeyboardShortcuts.Recorder
-            break
+             // For the shortcut step, the main button should just move to the next step.
+             // Setting the shortcut is handled by the Recorder itself.
+             moveToNext()
         }
     }
     
@@ -287,9 +286,11 @@ struct OnboardingPermissionsView: View {
     }
     
     private func getButtonTitle() -> String {
+        // Always show "Continue" for the keyboard shortcut step, as it's optional.
         if permissions[currentPermissionIndex].type == .keyboardShortcut {
-            return permissionStates[currentPermissionIndex] ? "Continue" : "Set Shortcut"
+            return "Continue"
         }
+        // For other steps, show "Continue" if granted, otherwise "Enable Access".
         return permissionStates[currentPermissionIndex] ? "Continue" : "Enable Access"
     }
 }
