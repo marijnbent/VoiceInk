@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -54,17 +54,17 @@
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E11473B22CBE0F0A00318EE4 /* VoiceInk */ = {
-			isa = PBXGroup;
+			isa = PBXFileSystemSynchronizedRootGroup;
 			path = VoiceInk;
 			sourceTree = "<group>";
 		};
 		E11473C62CBE0F0B00318EE4 /* VoiceInkTests */ = {
-			isa = PBXGroup;
+			isa = PBXFileSystemSynchronizedRootGroup;
 			path = VoiceInkTests;
 			sourceTree = "<group>";
 		};
 		E11473D02CBE0F0B00318EE4 /* VoiceInkUITests */ = {
-			isa = PBXGroup;
+			isa = PBXFileSystemSynchronizedRootGroup;
 			path = VoiceInkUITests;
 			sourceTree = "<group>";
 		};
@@ -144,6 +144,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				E11473B22CBE0F0A00318EE4 /* VoiceInk */,
+			);
 			name = VoiceInk;
 			packageProductDependencies = (
 				E1A261112CC143AC00B233D1 /* KeyboardShortcuts */,
@@ -167,6 +170,9 @@
 			dependencies = (
 				E11473C52CBE0F0B00318EE4 /* PBXTargetDependency */,
 			);
+			fileSystemSynchronizedGroups = (
+				E11473C62CBE0F0B00318EE4 /* VoiceInkTests */,
+			);
 			name = VoiceInkTests;
 			packageProductDependencies = (
 			);
@@ -187,6 +193,9 @@
 			dependencies = (
 				E11473CF2CBE0F0B00318EE4 /* PBXTargetDependency */,
 			);
+			fileSystemSynchronizedGroups = (
+				E11473D02CBE0F0B00318EE4 /* VoiceInkUITests */,
+			);
 			name = VoiceInkUITests;
 			packageProductDependencies = (
 			);
@@ -202,7 +211,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1600;
-				LastUpgradeCheck = 1540;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					E11473AF2CBE0F0A00318EE4 = {
 						CreatedOnToolsVersion = 16.0;
@@ -231,7 +240,7 @@
 				E1ADD4582CC5352A00303ECB /* XCRemoteSwiftPackageReference "LaunchAtLogin-Modern" */,
 				E1ADD45D2CC544F100303ECB /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
-			preferredProjectObjectVersion = 56;
+			preferredProjectObjectVersion = 77;
 			productRefGroup = E11473B12CBE0F0A00318EE4 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
